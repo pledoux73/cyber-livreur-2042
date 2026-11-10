@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Cyber-Livreur 2042</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #090d16;
+            color: #f8fafc;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+        #game-container {
+            position: relative;
+            box-shadow: 0 0 30px rgba(56, 189, 248, 0.3);
+            border-radius: 8px;
+            overflow: hidden;
+            border: 2px solid #334155;
+        }
+        canvas {
+            background: #0f172a;
+            display: block;
+        }
+        #ui {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            right: 15px;
+            display: flex;
+            justify-content: space-between;
+            font-size: 18px;
+            font-weight: bold;
+            pointer-events: none;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+        }
+        .screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(15, 23, 42, 0.85);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            backdrop-filter: blur(4px);
+            z-index: 10;
+        }
+        h1 {
+            color: #38bdf8;
+            margin-bottom: 10px;
+            font-size: 36px;
+            text-shadow: 0 0 10px rgba(56, 189, 248, 0.5);
+        }
+        p {
+            color: #94a3b8;
+            max-width: 400px;
+            margin-bottom: 25px;
+            line-height: 1.5;
+        }
+        .btn {
+            background: #38bdf8;
+            color: #090d16;
+            border: none;
+            padding: 12px 30px;
+            font-size: 16px;
+            font-weight: bold;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 14px rgba(56, 189, 248, 0.4);
+        }
+        .btn:hover {
+            background: #7dd3fc;
+            transform: translateY(-2px);
+        }
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <canvas id="gameCanvas" width="800" height="500"></canvas>
+        
+        <div id="ui">
+            <div id="scoreDisplay">SCORE : 0</div>
+            <div id="bestDisplay">RECORD : 0</div>
+        </div>
+
+        <!-- Écran de démarrage -->
+        <div id="startScreen" class="screen">
+            <h1>CYBER-LIVREUR 2042</h1>
+            <p>Pilote ton drone de livraison à travers les data-canaux de Neo-Paris. Esquive les pare-feux et collecte les fragments de données !</p>
+            <p style="font-size: 13px; color: #64748b;">Utilise les <strong>flèches Haut / Bas</strong> ou la <strong>souris</strong> pour piloter.</p>
+            <button class="btn" id="startBtn">LANCER LA MISSION</button>
+        </div>
+
+        <!-- Écran Game Over -->
+        <div id="gameOverScreen" class="screen hidden">
+            <h1>MISSION ÉCHOUÉE</h1>
+            <p id="finalScoreText">Score final : 0</p>
+            <button class="btn" id="restartBtn">RÉESSAYER</button>
+        </div>
+    </div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+const startScreen = document.getElementById('startScreen');
+const gameOverScreen = document.getElementById('gameOverScreen');
+const startBtn = document.getElementById('startBtn');
+const restartBtn = document.getElementById('restartBtn');
+const scoreDisplay = document.getElementById('scoreDisplay');
+const bestDisplay = document.getElementById('bestDisplay');
+const finalScoreText = document.getElementById('finalScoreText');
+
+let gameRunning = false;
+let score = 0;
+let bestScore = localStorage.getItem('cyber_best_score') || 0;
+bestDisplay.innerText = `RECORD : ${bestScore}`;
+
+let gameSpeed = 4;
+let frameCount = 0;
+
+// Joueur (Drone)
+const player = {
+    x: 100,
+    y: 250,
+    radius: 16,
+    vy: 0,
+    targetY: 250
+};
+
+let obstacles = [];
+let particles = [];
+
+// Gestion des contrôles clavier & souris
+const keys = { ArrowUp: false, ArrowDown: false };
+
+window.addEventListener('keydown', e => {
+    if (e.code === 'ArrowUp') keys.ArrowUp = true;
+    if (e.code === 'ArrowDown') keys.ArrowDown = true;
+});
+
+window.addEventListener('keyup', e => {
+    if (e.code === 'ArrowUp') keys.ArrowUp = false;
+    if (e.code === 'ArrowDown') keys.ArrowDown = false;
+});
+
+canvas.addEventListener('mousemove', e => {
+    if (!gameRunning) return;
+    const rect = canvas.getBoundingClientRect();
+    player.targetY = e.clientY - rect.top;
+});
+
+function startGame() {
+    score = 0;
+    gameSpeed = 4;
+    frameCount = 0;
+    obstacles = [];
+    particles = [];
+    player.y = 250;
+    player.targetY = 250;
+    gameRunning = true;
+    startScreen.classList.add('hidden');
+    gameOverScreen.classList.add('hidden');
+    loop();
+}
+
+function gameOver() {
+    gameRunning = false;
+    if (score > bestScore) {
+        bestScore = score;
+        localStorage.setItem('cyber_best_score', bestScore);
+        bestDisplay.innerText = `RECORD : ${bestScore}`;
+    }
+    finalScoreText.innerText = `Score final : ${score}`;
+    gameOverScreen.classList.remove('hidden');
+}
+
+startBtn.addEventListener('click', startGame);
+restartBtn.addEventListener('click', startGame);
+
+function spawnObstacle() {
+    const isCollectible = Math.random() < 0.35; // 35% de chance d'être un bonus
+    const width = isCollectible ? 24 : 30;
+    const height = isCollectible ? 24 : Math.floor(Math.random() * 120) + 60;
+    const y = isCollectible ? Math.random() * (canvas.height - 100) + 50 : (Math.random() > 0.5 ? 0 : canvas.height - height);
+
+    obstacles.push({
+        x: canvas.width,
+        y: y,
+        w: width,
+        h: height,
+        isCollectible: isCollectible,
+        collected: false
+    });
+}
+
+function update() {
+    frameCount++;
+    score += 1;
+    scoreDisplay.innerText = `SCORE : ${score}`;
+
+    // Augmentation progressive de la vitesse
+    if (frameCount % 400 === 0) {
+        gameSpeed += 0.5;
+    }
+
+    // Déplacement fluide du joueur vers la cible (souris ou inertie clavier)
+    if (keys.ArrowUp) player.targetY -= 6;
+    if (keys.ArrowDown) player.targetY += 6;
+
+    // Limites de l'écran
+    if (player.targetY < 30) player.targetY = 30;
+    if (player.targetY > canvas.height - 30) player.targetY = canvas.height - 30;
+
+    player.y += (player.targetY - player.y) * 0.15;
+
+    // Apparition d'obstacles
+    if (frameCount % 90 === 0) {
+        spawnObstacle();
+    }
+
+    // Mise à jour des obstacles
+    for (let i = obstacles.length - 1; i >= 0; i--) {
+        let obs = obstacles[i];
+        obs.x -= gameSpeed;
+
+        // Collision
+        if (!obs.collected &&
+            player.x + player.radius > obs.x &&
+            player.x - player.radius < obs.x + obs.w &&
+            player.y + player.radius > obs.y &&
+            player.y - player.radius < obs.y + obs.h) {
+            
+            if (obs.isCollectible) {
+                obs.collected = true;
+                score += 250; // Bonus score
+                // Particules de succès
+                for(let p=0; p<10; p++) {
+                    particles.push({
+                        x: obs.x + obs.w/2,
+                        y: obs.y + obs.h/2,
+                        vx: (Math.random() - 0.5) * 6,
+                        vy: (Math.random() - 0.5) * 6,
+                        life: 30,
+                        color: '#38bdf8'
+                    });
+                }
+                obstacles.splice(i, 1);
+                continue;
+            } else {
+                // Crash
+                gameOver();
+                return;
+            }
+        }
+
+        // Suppression hors champ
+        if (obs.x + obs.w < 0) {
+            obstacles.splice(i, 1);
+        }
+    }
+
+    // Mise à jour des particules
+    for (let i = particles.length - 1; i >= 0; i--) {
+        let pt = particles[i];
+        pt.x += pt.vx;
+        pt.y += pt.vy;
+        pt.life--;
+        if (pt.life <= 0) particles.splice(i, 1);
+    }
+}
+
+function draw() {
+    // Fond grille cybernétique
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.strokeStyle = '#1e293b';
+    ctx.lineWidth = 1;
+    let gridSize = 40;
+    let offset = (frameCount * gameSpeed * 0.5) % gridSize;
+    
+    ctx.beginPath();
+    for (let x = -offset; x < canvas.width; x += gridSize) {
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, canvas.height);
+    }
+    for (let y = 0; y < canvas.height; y += gridSize) {
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvas.width, y);
+    }
+    ctx.stroke();
+
+    // Dessin des obstacles et collectables
+    obstacles.forEach(obs => {
+        if (obs.isCollectible) {
+            ctx.fillStyle = '#38bdf8';
+            ctx.shadowColor = '#38bdf8';
+            ctx.shadowBlur = 12;
+            ctx.fillRect(obs.x, obs.y, obs.w, obs.h);
+            ctx.shadowBlur = 0;
+        } else {
+            ctx.fillStyle = '#f43f5e';
+            ctx.shadowColor = '#f43f5e';
+            ctx.shadowBlur = 10;
+            ctx.fillRect(obs.x, obs.y, obs.w, obs.h);
+            ctx.shadowBlur = 0;
+        }
+    });
+
+    // Dessin des particules
+    particles.forEach(pt => {
+        ctx.fillStyle = pt.color;
+        ctx.fillRect(pt.x, pt.y, 4, 4);
+    });
+
+    // Dessin du joueur (Drone)
+    ctx.save();
+    ctx.translate(player.x, player.y);
+    
+    // Corps du drone
+    ctx.fillStyle = '#a855f7';
+    ctx.shadowColor = '#a855f7';
+    ctx.shadowBlur = 15;
+    ctx.beginPath();
+    ctx.arc(0, 0, player.radius, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Centre du drone
+    ctx.fillStyle = '#f8fafc';
+    ctx.beginPath();
+    ctx.arc(0, 0, 6, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+}
+
+function loop() {
+    if (!gameRunning) return;
+    update();
+    draw();
+    requestAnimationFrame(loop);
+}
+</script>
+</body>
+</html>
